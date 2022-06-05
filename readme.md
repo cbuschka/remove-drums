@@ -4,7 +4,6 @@
 
 * bash
 * docker
-* ffmpeg
 
 ## Usage
 
