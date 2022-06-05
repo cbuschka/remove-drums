@@ -1,29 +1,34 @@
 #!/bin/bash
 
-WORK_DIR=${PWD}
-AUDIO_FILE=${1}
+set -e
 
-TEMP_DIR=$(uuidgen)
-mkdir -p ${WORK_DIR}/${TEMP_DIR}
+WORK_DIR=${PWD}
+AUDIO_FILE=$(readlink -f "${1}")
+
+TEMP_DIR=$(mktemp -d)
 
 echo "Splitting..."
 # for NUMBA_CACHE_DIR see https://github.com/librosa/librosa/issues/1156
-docker run --name spleeter -u $(id -u):$(id -g) -e NUMBA_CACHE_DIR=/tmp/ -ti --rm \
-	-v ${WORK_DIR}:/work/ -w /work/ \
+docker run --name remove-drums-spleeter -u $(id -u):$(id -g) \
+	-e NUMBA_CACHE_DIR=/tmp/ -ti --rm \
+	-v ${TEMP_DIR}:/output/ \
+	-w /tmp/ \
+	-v "${AUDIO_FILE}:/input.m4a:ro" \
 	deezer/spleeter:3.8-4stems \
 	separate -f "{instrument}.{codec}" \
-	-o /work/${TEMP_DIR}/ -p "spleeter:4stems" -c m4a \
-	"${AUDIO_FILE}"
+	-o /output/ -p "spleeter:4stems" -c m4a \
+	/input.m4a
 
 echo "Merging..."
-OUTPUT_DIR=${WORK_DIR}/${TEMP_DIR}/
 OUTPUT_FILE="$(basename "${AUDIO_FILE}" .m4a) - Drumless.m4a"
-docker run --name ffmpeg -u $(id -u):$(id -g) -ti --rm \
-	-v ${WORK_DIR}:/work/ -w /work/ \
+docker run --name remove-drums-ffmpeg -u $(id -u):$(id -g) -ti --rm \
+	-v ${TEMP_DIR}:/input/:ro \
+	-v ${WORK_DIR}:/output/ \
+	-w /tmp/ \
 	jrottenberg/ffmpeg:4.3-alpine312 \
-	-i /work/${TEMP_DIR}/bass.m4a -i /work/${TEMP_DIR}/other.m4a -i /work/${TEMP_DIR}/vocals.m4a -filter_complex amerge=inputs=3 -ac 2 "/work/${OUTPUT_FILE}"
+	-i /input/bass.m4a -i /input/other.m4a -i /input/vocals.m4a -filter_complex amerge=inputs=3 -ac 2 "/output/${OUTPUT_FILE}"
 
-if [ -d "${WORK_DIR}/${TEMP_DIR}" ]; then
-  rm -rf ${WORK_DIR}/${TEMP_DIR}
+if [ -d "${TEMP_DIR}" ]; then
+  rm -rf ${TEMP_DIR}
 fi
 
